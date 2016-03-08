@@ -121,6 +121,7 @@ def map_to_original_cmap(float_im, mean, std):
     new_im = np.minimum(np.maximum(((float_im*std)+mean), 0), 255).astype(np.uint8)
     return new_im
 
+
 def plot_liquid_style(content_image_name, style_image_name, n_steps=100, size=72, **kwargs):
     fig = plt.figure()
     raw_content_image = get_image(content_image_name, size=(size, None))

@@ -1,3 +1,7 @@
+from liquid_style.hmc_temp import simulate_dynamics, metropolis_hastings_accept, hamiltonian, hmc_updates
+from plato.core import create_shared_variable, add_update
+from plato.interfaces.helpers import get_theano_rng
+
 __author__ = 'peter'
 
 """
@@ -10,57 +14,60 @@ Mainly adapted from: http://deeplearning.net/tutorial/code/hmc/hmc.py
 
 class HamiltonianMonteCarlo(object):
 
-    def __init__(self, initial_state, energy_fcn, initial_step_size, step)
+    def __init__(self, initial_state, energy_fcn,
+            initial_stepsize=0.01,
+            target_acceptance_rate=.9,
+            n_steps=20,
+            stepsize_dec=0.98,
+            stepsize_min=0.001,
+            stepsize_max=0.25,
+            stepsize_inc=1.02,  # used in geometric avg. 1.0 would be not moving at all
+            avg_acceptance_slowness=0.9,
+            rng=None):
         self.energy_fcn = energy_fcn
-        self.step_size = initial_step_size
-
+        self.stepsize = create_shared_variable(initial_stepsize, name = 'hmc_stepsize')
+        self.n_steps = n_steps
+        self.avg_acceptance_rate = create_shared_variable(target_acceptance_rate, name = 'avg_acceptance_rate')
+        self.target_acceptance_rate = target_acceptance_rate
+        self.state = create_shared_variable(initial_state)
+        self.stepsize_dec = stepsize_dec
+        self.stepsize_min = stepsize_min
+        self.stepsize_max = stepsize_max
+        self.stepsize_inx = stepsize_inc
+        self.avg_acceptance_slowness = avg_acceptance_slowness
+        self.rng = get_theano_rng(rng)
 
     def get_new_state(self):
 
-        pass
+        initial_vel = self.rng.normal(size = self.state.ishape)
+        final_pos, final_vel = simulate_dynamics(
+            initial_pos = self.state,
+            initial_vel = initial_vel,
+            stepsize = self.step_size,
+            n_steps = self.n_steps,
+            energy_fn = self.energy_fcn
+        )
 
+        accept = metropolis_hastings_accept(
+            energy_prev=hamiltonian(self.initial_state, initial_vel, self.energy_fn),
+            energy_next=hamiltonian(final_pos, final_vel, self.energy_fn),
+            s_rng=self.rng
+            )
 
+        simulate_updates = hmc_updates(
+            positions=self.state,
+            stepsize=self.stepsize,
+            avg_acceptance_rate=self.avg_acceptance_rate,
+            final_pos=final_pos,
+            accept=accept,
+            stepsize_min=self.stepsize_min,
+            stepsize_max=self.stepsize_max,
+            stepsize_inc=self.stepsize_inc,
+            stepsize_dec=self.stepsize_dec,
+            target_acceptance_rate=self.target_acceptance_rate,
+            avg_acceptance_slowness=self.avg_acceptance_slowness)
 
+        for shared_var, new_val in simulate_updates.iteritems():
+            add_update(shared_var, new_val)
 
-def kinetic_energy(vel):
-    """
-    :param vel: A (n_samples, n_dims) array of velocity vectors
-    :return: The Kinetic Energy Term - (a vector of energies for each sample)
-    """
-    return 0.5 * (vel ** 2).sum(axis=1)
-
-
-def hamiltonian(pos, vel, energy_fn):
-    """
-
-    :param pos: A (n_samples, n_dims) array of position vectors
-    :param vel: A (n_samples, n_dims) array of velocity vectors
-    :param energy_fn: The energy function
-    :return: The Hamtonian (a vector of energies for each sample)
-    """
-    return energy_fn(pos) + kinetic_energy(vel)
-
-
-def metropolis_hastings_accept(energy_prev, energy_next, s_rng):
-    """
-    Performs a Metropolis-Hastings accept-reject move.
-
-    Parameters
-    ----------
-    energy_prev: theano vector
-        Symbolic theano tensor which contains the energy associated with the
-        configuration at time-step t.
-    energy_next: theano vector
-        Symbolic theano tensor which contains the energy associated with the
-        proposed configuration at time-step t+1.
-    s_rng: theano.tensor.shared_randomstreams.RandomStreams
-        Theano shared random stream object used to generate the random number
-        used in proposal.
-
-    Returns
-    -------
-    return: boolean
-        True if move is accepted, False otherwise
-    """
-    ediff = energy_prev - energy_next
-    return (TT.exp(ediff) - s_rng.uniform(size=energy_prev.shape)) >= 0
+        return simulate_updates[self.state]
