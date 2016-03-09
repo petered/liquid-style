@@ -27,7 +27,7 @@ def kinetic_energy(vel):
         Vector whose i-th entry is the kinetic entry associated with vel[i].
 
     """
-    return 0.5 * (vel ** 2).sum(axis=1)
+    return 0.5 * (vel ** 2).flatten(2).sum(axis=1)
 
 
 def hamiltonian(pos, vel, energy_fn):
@@ -303,6 +303,8 @@ def hmc_updates(positions, stepsize, avg_acceptance_rate, final_pos, accept,
             (stepsize, new_stepsize),
             (avg_acceptance_rate, new_acceptance_rate)]
     # end-snippet-8
+
+
 
 
 class HMC_sampler(object):

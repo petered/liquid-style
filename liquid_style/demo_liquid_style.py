@@ -1,5 +1,6 @@
 from liquid_style.art_gallery import get_image
 from liquid_style.convnets import ConvLayer
+from liquid_style.hmc import HamiltonianMonteCarlo
 from liquid_style.images2gif import OnlineGifWriter
 from liquid_style.pretrained_networks import get_vgg_net
 from fileman.experiment_record import ExperimentLibrary, Experiment, get_current_experiment_id
@@ -45,15 +46,16 @@ def layer_style_loss(evolving_features, style_features):
     See equation 4 from the paper.
     :param evolving_features: (n_samples, n_maple, size_y, size_x) feature rep derived from the content image
     :param style_features:  (n_samples, n_maple, size_y, size_x) feature rep derived from the style image
-    :return: A scalar representing the loss due to the difference in content-image
+    :return: A vector of per-sample losses representing the loss due to the difference in content-image
         autocorrelations and style-image autocorrelations.
     """
+
     content_correlations = feature_corr(evolving_features)
     style_correlations = feature_corr(style_features)
     n = evolving_features.shape[1]
     m = evolving_features.shape[2] * evolving_features.shape[3]
-    style_loss = ((content_correlations - style_correlations) ** 2).sum() / (4 * n ** 2 * m ** 2)
-    return style_loss
+    style_losses = ((content_correlations - style_correlations) ** 2).flatten(2).sum(axis=1) / (4 * n ** 2 * m ** 2)
+    return style_losses
 
 
 @symbolic
@@ -63,13 +65,27 @@ def layer_content_loss(evolving_features, content_features):
     :param content_features:  (n_samples, n_maple, size_y, size_x) feature rep derived from the style image
     :return: A scalar representing the loss due to the difference in content-image autocorrelations and style-image autocorrelations.
     """
-    return ((evolving_features[-1] - content_features[-1]) ** 2).sum() / 2
+    return ((evolving_features - content_features) ** 2).flatten(2).sum(axis=1) / 2
 
 
 @symbolic
 def get_total_loss(evolving_input, content_input, style_input, alpha=0.001, beta=1, weighting_scheme='uniform',
         style_layers = ['conv1_1', 'conv2_1', 'conv3_1', 'conv4_1', 'conv5_1'], content_layer='conv4_2',
-        force_shared_parameters = False, pooling_mode = 'max'):
+        force_shared_parameters = True, pooling_mode = 'max'):
+    """
+    evolving_input: (n_samples, n_colours, size_y, size_x) shared variable representing the image to evolve.
+    content_input: (n_samples, n_colours, size_y, size_x) array representing the content image
+    style_input: (n_samples, n_colours, style_size_y, style_size_x) array representing the style image
+    alpha:
+    beta:
+    weighting_scheme
+    style_layers
+    content_layer
+    force_shared_parameters
+    pooling_mode
+
+    :return: A vector of per-sample total losses
+    """
     net = get_vgg_net(up_to_layer=style_layers+[content_layer], force_shared_parameters=force_shared_parameters, pooling_mode = pooling_mode)
     weights = np.ones(len(style_layers)) / len(style_layers) if weighting_scheme == 'uniform' else \
         bad_value(weighting_scheme)
@@ -82,8 +98,8 @@ def get_total_loss(evolving_input, content_input, style_input, alpha=0.001, beta
     style_loss = sum([w * layer_style_loss(evolving_features[sl], style_features[sl]) for w, sl in zip(weights, style_layers)])
     print 'Initial Content Loss: %s' % (content_loss.ival,)
     print 'Initial Style Loss: %s' % (style_loss.ival,)
-    total_loss = alpha * content_loss + beta * style_loss
-    return total_loss
+    total_losses = alpha * content_loss + beta * style_loss
+    return total_losses
 
 
 @symbolic
@@ -93,15 +109,28 @@ def evolve_image(content_image, style_image, eta=0.01, init_mag=0.01, rng=None, 
     rng = get_rng(rng)
 
     evolving_input = create_shared_variable(im2feat(rng.normal(scale=init_mag, size=content_image.ishape)))
-    loss = get_total_loss(
-        evolving_input=evolving_input,
-        content_input=im2feat(content_image),
-        style_input=im2feat(style_image),
-        **loss_args
-    )
-    optimizer = get_named_optimizer(name=optimizer, learning_rate=eta) if isinstance(optimizer, str) else optimizer
-    optimizer(cost=loss, parameters=[evolving_input])
-    evolving_image = feat2im(evolving_input)
+
+    if optimizer == 'hmc':
+        sampler = HamiltonianMonteCarlo(
+            initial_state=evolving_input,
+            energy_fcn= lambda state: 1e4*get_total_loss(
+                evolving_input=state,
+                content_input=im2feat(content_image),
+                style_input=im2feat(style_image),
+                **loss_args
+                )
+            )
+        sampler.update_state()
+    else:
+        loss = get_total_loss(
+            evolving_input=evolving_input,
+            content_input=im2feat(content_image),
+            style_input=im2feat(style_image),
+            **loss_args
+            ).sum()
+        optimizer = get_named_optimizer(name=optimizer, learning_rate=eta) if isinstance(optimizer, str) else optimizer
+        optimizer(cost=loss, parameters=[evolving_input])
+    evolving_image = feat2im(evolving_input)  # Note.. we output the variable before it's updated.
     print "Stop Symbolic"
     return evolving_image
 
@@ -179,9 +208,9 @@ ExperimentLibrary.shallow_art = Experiment(
         extreme_style_momentum_small = dict(alpha = 1e-9, size = 128, n_steps=600, optimizer = GradientDescent(eta=1, momentum=0.9)),
         extreme_style_more_momentum_small = dict(alpha = 1e-8, size = 128, n_steps=600, optimizer = GradientDescent(eta=1., momentum=0.99)),
 
-        # extreme_style_hmc_small = dict(alpha = 1e-8, size = 128, n_steps=600, optimizer = HMCPartial(step_size=100, alpha = 0.9, temperature=10)),
+        extreme_style_hmc_small = dict(alpha = 1e-8, size = 128, n_steps=600, optimizer = 'hmc'),
         ),
-    current_version='low_res',
+    current_version='extreme_style_hmc_small',
     conclusion="""
         low_res & high_res: Stay very close to original image in form, appear to mainly change colour content.
         adamax_opt:

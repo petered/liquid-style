@@ -1,4 +1,6 @@
 from collections import OrderedDict
+
+from general.should_be_builtins import memoize
 from liquid_style.convnets import ConvLayer, Nonlinearity, Pooler, ConvNet
 from fileman.file_getter import get_file
 from scipy.io import loadmat
@@ -11,6 +13,8 @@ type_matches = lambda collection, klass: np.array([isinstance(x, type) for x in 
 
 find_nth_match = lambda bool_arr, n: np.nonzeros
 
+
+@memoize
 def get_vgg_net(up_to_layer = None, force_shared_parameters = True, pooling_mode = 'max'):
     """
     :param up_to_layer: The layer to stop at.  Or a list of layers, in which case the network will go to the highest.
