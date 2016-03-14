@@ -50,6 +50,7 @@ class Pooler(object):
         """
         :param region: Size of the pooling region e.g. (2, 2)
         :param stride: Size of the stride e.g. (2, 2) (defaults to match pooling region size for no overlap)
+        :param mode: Type of pooling: {'max', 'sum', 'average_inc_pad', 'average_exc_pad'}.  See pool_2d docstring.
         """
         assert len(region) == 2, 'Region must consist of two integers.  Got: %s' % (region, )
         if stride is None:

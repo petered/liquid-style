@@ -162,7 +162,7 @@ class HamiltonianMonteCarlo(object):
             velocity = self.rng.normal(size = self.position.ishape)  # This is resetting every time, right?
         else:  # Partial Momentum refreshment
             velocity_shared = create_shared_variable(self.np_rng.normal(size = self.position.ishape))
-            velocity = self.alpha*velocity_shared + tt.sqrt(1.-self.alpha**2)*self.rng.normal(size = self.state.ishape)
+            velocity = self.alpha*velocity_shared + tt.sqrt(1.-self.alpha**2)*self.rng.normal(size = self.position.ishape)
             add_update(velocity_shared, velocity)
 
         final_position, final_vel = simulate_dynamics(
